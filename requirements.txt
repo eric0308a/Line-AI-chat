@@ -1,0 +1,9 @@
+ollama
+deep-translator
+flask 
+flask-cors 
+requests
+line-bot-sdk
+python-dotenv
+pathlib
+google-generativeai
