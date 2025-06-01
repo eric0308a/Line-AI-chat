@@ -1,3 +1,5 @@
 .env
 chatbot.log
 chat_history.json
+history/
+prompts/

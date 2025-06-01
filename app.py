@@ -34,6 +34,9 @@ class ChatBot:
         self.system_prompt_file = os.getenv("SYSTEM_PROMPT_FILE", "system_prompt.txt")
         self.max_history_length = int(os.getenv("MAX_HISTORY_LENGTH", "4000"))
         self.temperature = float(os.getenv("TEMPERATURE", "0.7"))
+        self.prompts_dir = Path("prompts")
+        self.prompts_dir.mkdir(exist_ok=True)
+
 
     def setup_line_bot(self):
         self.line_bot_api = LineBotApi(self.line_access_token)
@@ -88,9 +91,11 @@ class ChatBot:
             history = history[-10:]  # 保留最後 10 則
         return history
 
-    def get_ai_response(self, history, user_msg):
+    def get_ai_response(self, history, user_msg, user_id):
         try:
-            conversation = [self.system_prompt]
+            user_prompt = self.get_user_prompt(user_id)
+
+            conversation = [user_prompt]
             for msg in history:
                 if msg["role"] == "user":
                     conversation.append(f"User: {msg['message']}")
@@ -125,9 +130,62 @@ class ChatBot:
 
             logger.info(f"收到來自 {user_id} 的訊息：{user_msg}")
 
+            prompt_flag_file = self.prompts_dir / f"user_{user_id}_awaiting.txt"
+
+            # 功能 1️⃣：若正在設定提示詞，儲存後結束設定流程
+            if prompt_flag_file.exists():
+                self.set_user_prompt(user_id, user_msg)
+                prompt_flag_file.unlink()
+                reply = "✅ 系統提示詞已更新！"
+                self.line_bot_api.reply_message(
+                    event.reply_token,
+                    TextSendMessage(text=reply)
+                )
+                return
+
+            # 功能 2️⃣：進入設定提示詞流程
+            if user_msg == "設定提示詞":
+                current_prompt = self.get_user_prompt(user_id)
+                prompt_flag_file.write_text("awaiting", encoding="utf-8")
+                reply = f"🔧 現在的提示詞如下：\n\n{current_prompt}\n\n請輸入你想要變更的新提示詞："
+                self.line_bot_api.reply_message(
+                    event.reply_token,
+                    TextSendMessage(text=reply)
+                )
+                return
+
+            # 功能 3️⃣：清除提示詞（刪除該用戶自定義提示詞檔）
+            if user_msg == "清除提示詞":
+                prompt_path = self.prompts_dir / f"user_{user_id}.txt"
+                if prompt_path.exists():
+                    prompt_path.unlink()
+                    reply = "✅ 已清除使用者提示詞，恢復為預設提示詞。"
+                else:
+                    reply = "ℹ️ 你尚未自訂提示詞，已使用預設提示詞。"
+                self.line_bot_api.reply_message(
+                    event.reply_token,
+                    TextSendMessage(text=reply)
+                )
+                return
+
+            # 功能 4️⃣：清除聊天紀錄
+            if user_msg == "/bye":
+                history_path = self.history_dir / f"user_{user_id}.json"
+                if history_path.exists():
+                    history_path.unlink()
+                    reply = "🗑️ 已清除你的聊天紀錄，從頭開始囉！"
+                else:
+                    reply = "ℹ️ 目前沒有聊天紀錄可清除。"
+                self.line_bot_api.reply_message(
+                    event.reply_token,
+                    TextSendMessage(text=reply)
+                )
+                return
+
+            # 🧠 一般對話流程
             history = self.load_chat_history(user_id)
             history = self.manage_chat_history(user_id, history, user_msg)
-            ai_reply = self.get_ai_response(history, user_msg)
+            ai_reply = self.get_ai_response(history, user_msg, user_id)
 
             history.append({
                 "role": "assistant",
@@ -140,6 +198,17 @@ class ChatBot:
                 event.reply_token,
                 TextSendMessage(text=ai_reply)
             )
+
+
+    def get_user_prompt(self, user_id):
+        prompt_file = self.prompts_dir / f"user_{user_id}.txt"
+        if prompt_file.exists():
+            return prompt_file.read_text(encoding="utf-8").strip()
+        return self.system_prompt
+
+    def set_user_prompt(self, user_id, prompt_text):
+        prompt_file = self.prompts_dir / f"user_{user_id}.txt"
+        prompt_file.write_text(prompt_text.strip(), encoding="utf-8")
 
     def run(self, host="0.0.0.0", port=5566):
         self.app.run(host=host, port=port)
