@@ -10,8 +10,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# 開放 Flask port（假設用的是 5000）
+# 開放 Flask port
 EXPOSE 5566
 
-# 執行 app.py（你可以改成 gunicorn）
-CMD ["python", "Gemini.py"]
+# 執行 app.py
+CMD ["python", "app.py"]
