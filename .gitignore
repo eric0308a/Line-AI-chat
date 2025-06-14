@@ -6,4 +6,5 @@ prompts/
 .venv/
 images/
 audios/
+videos/
 docker-compose.yml
