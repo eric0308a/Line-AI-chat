@@ -1,2 +1,6 @@
 history/
 prompts/
+images/
+audios/
+videos/
+.venv/
