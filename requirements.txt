@@ -3,7 +3,7 @@ deep-translator
 flask 
 flask-cors 
 requests
-line-bot-sdk
+line-bot-sdk>=3.0.0
 python-dotenv
 pathlib
 google-generativeai
