@@ -26,7 +26,7 @@ from linebot.v3.webhooks import (
 from pathlib import Path
 from dotenv import load_dotenv
 import google.generativeai as genai
-from google.generativeai import protos # <<< 確保 protos 被匯入
+from google.generativeai import protos 
 from PIL import Image
 import io
 import requests
@@ -40,7 +40,7 @@ class ChatBot:
         self.app = Flask(__name__)
         self.load_environment()
         self.setup_line_bot()
-        self.setup_gemini_config() # 僅設定 config，模型實例化移至 get_ai_response
+        self.setup_gemini_config() 
         self.setup_routes()
 
     def load_environment(self):
@@ -70,7 +70,7 @@ class ChatBot:
         self.messaging_api = MessagingApi(ApiClient(self.configuration))
         self.messaging_api_blob = MessagingApiBlob(ApiClient(self.configuration))
 
-    def setup_gemini_config(self): # 改名以反映其作用
+    def setup_gemini_config(self): 
         genai.configure(api_key=self.gemini_api_key)
         self.generation_config_dict = {
             "temperature": self.temperature,
@@ -153,11 +153,8 @@ class ChatBot:
                             logger.error(f"載入歷史圖片失敗 {part_data}: {e}", exc_info=True)
                             parts_for_gemini.append(f"(載入歷史圖片錯誤: {Path(part_data).name})")
                     elif isinstance(part_data, str) and part_data.startswith(str(self.audio_dir)):
-                        # 音訊路徑在歷史中僅用於標識和清理，不作為原始音訊傳遞給 history
-                        # AI對音訊的理解已轉為文字存在於assistant的回應中
-                        # 如果需要，這裡可以添加如 "(用戶曾發送過音訊)" 的標記文字
-                        # parts_for_gemini.append(f"(歷史音訊檔案: {Path(part_data).name})")
-                        pass # 通常不將歷史音訊檔案路徑直接加入gemini的歷史內容
+                        
+                        pass 
                     else:
                         parts_for_gemini.append(part_data)
                 
@@ -171,7 +168,7 @@ class ChatBot:
             logger.debug(f"向 Gemini 發送歷史: {len(gemini_history)} turns. 用戶內容類型: {[type(p) for p in user_content]}")
             
             chat_session = model.start_chat(history=gemini_history)
-            response = chat_session.send_message(user_content) # user_content 可以包含 protos.Part
+            response = chat_session.send_message(user_content) 
             
             return response.text.strip() if response.text else "抱歉，我暫時無法回應。"
         except Exception as e:
@@ -251,7 +248,7 @@ class ChatBot:
 
                     audio_prompt_text = "用戶發送了一段語音，請理解其內容並作出回應。例如，如果是問題請回答，如果是陳述請給予回應。"
                     
-                    # --- 使用 protos.Blob 和 protos.Part 處理音訊 ---
+                    
                     try:
                         audio_blob = protos.Blob(mime_type=mime_type, data=audio_bytes)
                         audio_part_for_gemini = protos.Part(inline_data=audio_blob)
@@ -264,8 +261,8 @@ class ChatBot:
                                 messages=[TextMessage(text="抱歉，處理您的語音訊息時內部發生錯誤。")]
                             )
                         )
-                        return # 終止此任務
-                    # --- 修改結束 ---
+                        return 
+                    
                     
                     user_content_for_gemini = [audio_prompt_text, audio_part_for_gemini]
                     storable_parts_for_history = [
@@ -283,9 +280,9 @@ class ChatBot:
                     )
                     return
                 
-                if not user_content_for_gemini: # 再次檢查，以防 audio 處理提前返回
+                if not user_content_for_gemini: 
                     logger.warning(f"事件類型 {event_type} 未能成功準備 user_content_for_gemini (可能在 audio 處理中失敗)")
-                    # 可以不推播，因為 audio 處理失敗時已推播
+                    
                     return
 
 
