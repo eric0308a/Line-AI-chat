@@ -7,3 +7,4 @@ line-bot-sdk
 python-dotenv
 pathlib
 google-generativeai
+Pillow

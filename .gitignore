@@ -3,4 +3,5 @@ chatbot.log
 chat_history.json
 history/
 prompts/
+.venv/
 docker-compose.yml
