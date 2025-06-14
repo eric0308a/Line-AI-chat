@@ -3,7 +3,7 @@ import logging
 import os
 from datetime import datetime
 from flask import Flask, request, abort
-import threading  # 確保 import 了 threading
+import threading
 from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.messaging import (
@@ -11,8 +11,8 @@ from linebot.v3.messaging import (
     ApiClient,
     MessagingApi,
     MessagingApiBlob,
-    ReplyMessageRequest, # 用於同步快速指令
-    PushMessageRequest,  # 用於非同步背景任務
+    ReplyMessageRequest,
+    PushMessageRequest,
     TextMessage,
 )
 from linebot.v3.webhooks import MessageEvent, TextMessageContent, ImageMessageContent
@@ -23,7 +23,6 @@ import google.generativeai as genai
 from PIL import Image
 import io
 
-# 日誌設定
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -75,7 +74,6 @@ class ChatBot:
         )
 
     def get_system_prompt(self, user_id):
-        # ... (此函式不變)
         user_prompt_file = self.prompts_dir / f"user_{user_id}.txt"
         if user_prompt_file.exists():
             return user_prompt_file.read_text(encoding="utf-8").strip()
@@ -85,7 +83,6 @@ class ChatBot:
         return "你是一個友善、溫暖且樂於助人的AI助手。請使用繁體中文與使用者互動，保持簡潔、親切、同理心的語調。"
 
     def load_chat_history(self, user_id):
-        # ... (此函式不變)
         path = self.history_dir / f"user_{user_id}.json"
         if path.exists():
             try:
@@ -96,13 +93,11 @@ class ChatBot:
         return []
 
     def save_chat_history(self, user_id, history):
-        # ... (此函式不變)
         path = self.history_dir / f"user_{user_id}.json"
         with open(path, "w", encoding="utf-8") as f:
             json.dump(history, f, ensure_ascii=False, indent=2)
 
     def manage_chat_history(self, history):
-        # ... (此函式不變)
         total_tokens = sum(len(str(part)) * 2 for turn in history for part in turn.get('parts', []))
         while total_tokens > self.max_history_tokens and len(history) > 1:
             removed_turn = history.pop(0)
@@ -114,7 +109,6 @@ class ChatBot:
         return history
     
     def get_ai_response(self, user_id, history, user_content):
-        # ... (此函式不變)
         try:
             system_prompt = self.get_system_prompt(user_id)
             model = genai.GenerativeModel(
@@ -142,13 +136,10 @@ class ChatBot:
             logger.error(f"Gemini API 回應失敗：{e}", exc_info=True)
             return "發生錯誤，請稍後再試～"
 
-    # ✨✨✨ 這才是正確的、最終的 setup_routes 方法 ✨✨✨
     def setup_routes(self):
         
-        # ---- 這是一個通用的背景處理函式 (只處理慢速任務) ----
         def background_task(user_id, event_type, data):
             try:
-                # 準備要傳給 AI 的內容
                 if event_type == 'text':
                     user_content = [data]
                     storable_parts = user_content
@@ -161,17 +152,14 @@ class ChatBot:
                 else:
                     return
 
-                # 執行耗時的 AI 任務
                 history = self.load_chat_history(user_id)
                 ai_reply = self.get_ai_response(user_id, history, user_content)
 
-                # 更新歷史紀錄
                 history.append({"role": "user", "parts": storable_parts})
                 history.append({"role": "assistant", "parts": [ai_reply]})
                 history = self.manage_chat_history(history)
                 self.save_chat_history(user_id, history)
 
-                # 使用 Push API 回覆 (注意 v3 SDK 的語法)
                 self.messaging_api.push_message(
                     PushMessageRequest(
                         to=user_id,
@@ -194,19 +182,15 @@ class ChatBot:
                 self.handler.handle(body, signature)
             except InvalidSignatureError:
                 abort(400)
-            return "OK" # 立刻回覆 OK
+            return "OK"
 
         @self.handler.add(MessageEvent, message=TextMessageContent)
         def handle_text_message(event):
             user_id = event.source.user_id
             user_msg = event.message.text.strip()
             
-            # ✨ 1. 區分快慢任務
-            # 這些是快速任務，我們同步處理並立即回覆
-            
-            # 建立一個只給快速任務使用的同步回覆函式
             def reply_sync(text):
-                from linebot.v3.messaging import ReplyMessageRequest # 僅在此處 import
+                from linebot.v3.messaging import ReplyMessageRequest
                 self.messaging_api.reply_message(
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
@@ -244,18 +228,14 @@ class ChatBot:
                 reply_sync("🗑️ 已清除你的聊天紀錄，從頭開始囉！")
                 return
 
-            # ✨ 2. 如果不是以上快速任務，就交給慢速的背景任務處理
             logger.info(f"收到來自 {user_id} 的文字訊息，將啟動背景AI處理：{user_msg}")
             threading.Thread(target=background_task, args=(user_id, 'text', user_msg)).start()
 
         @self.handler.add(MessageEvent, message=ImageMessageContent)
         def handle_image_message(event):
-            # 圖片處理永遠是慢速任務
             logger.info(f"收到來自 {event.source.user_id} 的圖片訊息，將啟動背景AI處理")
             try:
-                # 下載圖片的二進位資料
                 message_content = self.messaging_api_blob.get_message_content(message_id=event.message.id)
-                # 啟動背景任務，並將圖片的 bytes 傳過去
                 threading.Thread(target=background_task, args=(event.source.user_id, 'image', message_content)).start()
             except Exception as e:
                 logger.error(f"處理圖片訊息時下載失敗: {e}", exc_info=True)
@@ -263,9 +243,6 @@ class ChatBot:
     def run(self, host="0.0.0.0", port=5566):
         self.app.run(host=host, port=port)
 
-# ----------------------------------------------------
-# ✨✨✨ 確保這段啟動程式碼存在於檔案的最下方 ✨✨✨
-# ----------------------------------------------------
 if __name__ == "__main__":
     bot = ChatBot()
     port = int(os.environ.get("PORT", 5566))
