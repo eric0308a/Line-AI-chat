@@ -87,7 +87,7 @@ class ChatBot:
             "temperature": self.temperature,
             "top_p": 0.95,
             "top_k": 64,
-            "max_output_tokens": 8192,
+            "max_output_tokens": int(os.getenv("GEMINI_MAX_OUTPUT_TOKENS", "8192")),
         }
 
     def get_system_prompt(self, user_id):
@@ -273,6 +273,7 @@ class ChatBot:
                 logger.info(f"背景任務開始: User {user_id}, Type {event_type}, MsgID {line_message_id}")
                 user_content_for_gemini = []
                 storable_parts_for_history = []
+                contextual_media_prompt_prefix = "用戶發送了一個媒體檔案。請結合我們之前的對話內容，理解並回應這個媒體："
                 if event_type == 'text':
                     user_text = raw_event_data
                     user_content_for_gemini = [user_text]
@@ -286,12 +287,19 @@ class ChatBot:
                     image_path = self.image_dir / filename
                     image_obj.save(image_path, 'PNG')
                     logger.info(f"圖片已儲存於: {image_path} (User: {user_id}, MsgID: {line_message_id})")
-                    prompt_text = "請描述這張用戶上傳的圖片。如果圖片中有文字，也請一併列出。"
-                    user_content_for_gemini = [prompt_text, image_obj]
-                    storable_parts_for_history = [prompt_text, str(image_path)]
+                    
+                    image_specific_prompt = "這是一張圖片。如果圖片中有文字，也請一併識別。"
+                    full_image_prompt = f"{contextual_media_prompt_prefix}\n{image_specific_prompt}"
+                    
+                    user_content_for_gemini = [full_image_prompt, image_obj]
+                    storable_parts_for_history = [full_image_prompt, str(image_path)]
+
                 elif event_type == 'sticker':
                     sticker_image_bytes, package_id, sticker_id = raw_event_data
-                    sticker_prompt_text = f"用戶發送了一個 LINE 貼圖 (Package ID: {package_id}, Sticker ID: {sticker_id})。"
+                    
+                    sticker_base_info = f"用戶發送了一個 LINE 貼圖 (Package ID: {package_id}, Sticker ID: {sticker_id})。"
+                    sticker_specific_prompt = "這是一個貼圖。請描述它並推測用戶的情感或意圖。"
+                    
                     if sticker_image_bytes:
                         try:
                             sticker_obj = Image.open(io.BytesIO(sticker_image_bytes))
@@ -300,36 +308,46 @@ class ChatBot:
                             sticker_path = self.image_dir / filename
                             sticker_obj.save(sticker_path, 'PNG')
                             logger.info(f"貼圖已儲存於: {sticker_path} (User: {user_id}, MsgID: {line_message_id})")
-                            sticker_prompt_text_full = sticker_prompt_text + "圖片內容如下。請描述這個貼圖並推測用戶的情感或意圖。"
-                            user_content_for_gemini = [sticker_prompt_text_full, sticker_obj]
-                            storable_parts_for_history = [sticker_prompt_text_full, str(sticker_path)]
+                            
+                            full_sticker_prompt = f"{contextual_media_prompt_prefix}\n{sticker_base_info} {sticker_specific_prompt} 圖片內容如下。"
+                            user_content_for_gemini = [full_sticker_prompt, sticker_obj]
+                            storable_parts_for_history = [full_sticker_prompt, str(sticker_path)]
                         except Exception as e:
                             logger.error(f"處理下載的貼圖圖片失敗 (User: {user_id}, MsgID: {line_message_id}): {e}", exc_info=True)
-                            sticker_prompt_text_full = sticker_prompt_text + "但無法顯示圖片。請根據 ID 推測含義。"
-                            user_content_for_gemini = [sticker_prompt_text_full]
-                            storable_parts_for_history = [sticker_prompt_text_full]
+                            full_sticker_prompt = f"{contextual_media_prompt_prefix}\n{sticker_base_info} {sticker_specific_prompt} 但無法顯示圖片。"
+                            user_content_for_gemini = [full_sticker_prompt]
+                            storable_parts_for_history = [full_sticker_prompt]
                     else:
-                        sticker_prompt_text_full = sticker_prompt_text + "但無法獲取其實際圖片。請根據 ID 推測其可能的含義和用戶情感。"
-                        user_content_for_gemini = [sticker_prompt_text_full]
-                        storable_parts_for_history = [sticker_prompt_text_full]
+                        full_sticker_prompt = f"{contextual_media_prompt_prefix}\n{sticker_base_info} {sticker_specific_prompt} 但無法獲取其實際圖片。"
+                        user_content_for_gemini = [full_sticker_prompt]
+                        storable_parts_for_history = [full_sticker_prompt]
+
                 elif event_type == 'audio' or event_type == 'video':
-                    media_type_str = "音訊" if event_type == 'audio' else "影片"
+                    media_type_str_display = "一段語音" if event_type == 'audio' else "一段影片"
                     file_ext = "m4a" if event_type == 'audio' else "mp4"
                     mime_type = f"audio/{file_ext}" if event_type == 'audio' else f"video/{file_ext}"
                     media_dir = self.audio_dir if event_type == 'audio' else self.video_dir
-                    logger.info(f"背景下載{media_type_str}: User {user_id}, MsgID {line_message_id}")
+                    logger.info(f"背景下載{media_type_str_display}: User {user_id}, MsgID {line_message_id}")
                     media_bytes = self.messaging_api_blob.get_message_content(message_id=line_message_id)
                     ts_filename_part = datetime.now().strftime('%Y%m%d%H%M%S%f')
                     filename = f"user{event_type}_{user_id}_{ts_filename_part}_{line_message_id}.{file_ext}"
                     media_path = media_dir / filename
                     with open(media_path, "wb") as f:
                         f.write(media_bytes)
-                    logger.info(f"{media_type_str}檔案已儲存於: {media_path} (User: {user_id}, MsgID: {line_message_id})")
-                    media_prompt_text = f"用戶發送了一段{media_type_str}，請理解其內容並作出回應。"
+                    logger.info(f"{media_type_str_display}檔案已儲存於: {media_path} (User: {user_id}, MsgID: {line_message_id})")
+                    
+                    media_specific_prompt = f"這是{media_type_str_display}。"
+                    full_media_prompt = f"{contextual_media_prompt_prefix}\n{media_specific_prompt}"
+                    
                     uploaded_media_file = genai.upload_file(path=media_path, mime_type=mime_type, display_name=filename)
                     active_media_file = wait_for_file_active(uploaded_media_file, user_id, line_message_id)
-                    user_content_for_gemini = [media_prompt_text, active_media_file]
-                    storable_parts_for_history = [f"用戶發送了一段{media_type_str}（檔案：{filename}）。", str(media_path)]
+                    
+                    user_content_for_gemini = [full_media_prompt, active_media_file]
+
+                    history_media_text = f"用戶發送了{media_type_str_display}（檔案：{filename}）。"
+                    storable_parts_for_history = [full_media_prompt, str(media_path)] 
+
+
                 else:
                     logger.warning(f"未知的事件類型給背景任務 (User: {user_id}, MsgID: {line_message_id}): {event_type}")
                     return
